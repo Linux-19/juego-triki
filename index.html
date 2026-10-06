@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Triki</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; padding: 24px 16px 40px;
+      display: flex; flex-direction: column; align-items: center; gap: 18px;
+      font-family: "Segoe UI", system-ui, sans-serif; color: #fff;
+      background: linear-gradient(160deg, #667eea, #764ba2) fixed;
+    }
+    h1 { margin: 0; font-size: 3rem; text-shadow: 0 4px 12px #0004; }
+    h2 { margin: 0; font-size: 1.05rem; }
+    button { border: none; cursor: pointer; font: inherit; transition: background .2s; }
+    .x { color: #f43f5e; }
+    .o { color: #3b82f6; }
+
+    .fila { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 340px; }
+    .fila[hidden] { display: none; }
+    .btn { padding: 8px 16px; border-radius: 10px; color: #fff; background: #fff3; font-weight: 600; }
+    .btn:hover { background: #fff5; }
+    .btn.activo { background: #fff; color: #6d5bd0; }
+
+    .etiqueta { padding: 8px 18px; border-radius: 10px; background: #fffd; color: #444; }
+    #estado { font-weight: 700; font-size: 1.1rem; }
+    #estado.gana { background: #10b981; color: #fff; }
+    #estado.pierde { background: #f43f5e; color: #fff; }
+    #estado.empate { background: #f59e0b; color: #fff; }
+    #frase { margin-top: -8px; min-height: 1.4em; font-style: italic; }
+
+    #tablero {
+      display: grid; grid: repeat(3, 1fr) / repeat(3, 1fr); gap: 10px;
+      width: min(90vw, 320px); aspect-ratio: 1; flex-shrink: 0;
+    }
+    .casilla {
+      border-radius: 14px; background: #f8f9fc; box-shadow: 0 4px 10px #0002;
+      font-size: clamp(2.2rem, 12vw, 3.6rem); font-weight: 800;
+    }
+    .casilla:hover:not(:disabled) { background: #eceefa; }
+    .casilla:disabled { cursor: default; }
+    .casilla.ganadora { background: #fde68a; }
+
+    #reiniciar {
+      padding: 14px 34px; border-radius: 12px; color: #fff; font-weight: 700;
+      background: linear-gradient(135deg, #fb7185, #e11d48); box-shadow: 0 6px 16px #e11d4866;
+    }
+  </style>
+</head>
+<body>
+  <h1>Triki</h1>
+
+  <div class="fila">
+    <button class="btn activo" data-modo="dos">2 Jugadores</button>
+    <button class="btn" data-modo="pc">vs Computadora</button>
+  </div>
+  <div class="fila" id="dificultad" hidden>
+    <button class="btn" data-nivel="facil">Fácil</button>
+    <button class="btn activo" data-nivel="normal">Normal</button>
+    <button class="btn" data-nivel="dificil">Difícil</button>
+  </div>
+
+  <div class="etiqueta" id="marcador"></div>
+  <div class="etiqueta" id="estado"></div>
+  <div id="frase"></div>
+  <div id="tablero"></div>
+  <button id="reiniciar" onclick="nuevaPartida()">Reiniciar Juego</button>
+
+  <h2>Historial de Jugadas</h2>
+  <div class="fila" id="historial"></div>
+
+  <script>
+    const LINEAS = [[0,1,2], [3,4,5], [6,7,8], [0,3,6], [1,4,7], [2,5,8], [0,4,8], [2,4,6]];
+    const FRASES = {
+      gana: ["La máquina no lo vio venir.", "Humanos 1, robots 0.", "Eso fue pura estrategia."],
+      pierde: ["La próxima será, no te rindas.", "Hoy ganó el robot, mañana ganas tú.", "Respira hondo y pide la revancha."],
+      empate: ["Mentes iguales piensan igual.", "Empate justo, otra para desempatar."],
+    };
+
+    const $ = id => document.getElementById(id);
+    const azar = lista => lista[Math.floor(Math.random() * lista.length)];
+    const libres = t => t.flatMap((v, i) => (v ? [] : [i]));
+    const lineaGanadora = t => LINEAS.find(([a, b, c]) => t[a] && t[a] === t[b] && t[a] === t[c]);
+    const marca = j => `<span class="${j.toLowerCase()}">${j}</span>`;
+
+    const config = { modo: "dos", nivel: "normal" };
+    const puntos = { X: 0, O: 0, empate: 0 };
+    let historial, paso, contado, espera;
+
+    for (let i = 0; i < 9; i++) {
+      const b = document.createElement("button");
+      b.className = "casilla";
+      b.onclick = () => !espera && jugar(i);
+      $("tablero").append(b);
+    }
+
+    function nuevaPartida() {
+      historial = [Array(9).fill(null)];
+      contado = false;
+      irA(0);
+    }
+
+    function jugar(i) {
+      const nuevo = [...historial[paso]];
+      nuevo[i] = paso % 2 ? "O" : "X";
+      historial = [...historial.slice(0, paso + 1), nuevo];
+      irA(paso + 1);
+    }
+
+    // Muestra el tablero del movimiento n y todo lo que depende de él.
+    function irA(n) {
+      clearTimeout(espera);
+      espera = null;
+      paso = n;
+      const t = historial[n], linea = lineaGanadora(t), turno = n % 2 ? "O" : "X";
+      const ganador = linea && t[linea[0]], fin = linea || !libres(t).length;
+      const pc = config.modo === "pc";
+      let texto, resultado = "";
+
+      if (fin) {
+        resultado = !ganador ? "empate" : pc && ganador === "O" ? "pierde" : "gana";
+        texto = !ganador ? "¡Empate!" : !pc ? `¡Ganador: ${ganador}!` : ganador === "X" ? "¡Ganaste!" : "Ganó la computadora";
+        if (!contado) { puntos[ganador || "empate"]++; contado = true; }
+      } else if (pc && turno === "O") {
+        texto = "La computadora está pensando...";
+        espera = setTimeout(() => jugar(jugadaPC(t)), 600);
+      } else {
+        texto = pc ? `Tu turno (${marca("X")})` : `Turno de: ${marca(turno)}`;
+      }
+
+      $("estado").innerHTML = texto;
+      $("estado").className = "etiqueta " + resultado;
+      $("frase").textContent = pc && resultado ? azar(FRASES[resultado]) : "";
+      $("marcador").innerHTML =
+        `<span class="x">${pc ? "Tú" : "X"}: <b>${puntos.X}</b></span> &nbsp; Empates: <b>${puntos.empate}</b> &nbsp; ` +
+        `<span class="o">${pc ? "Computadora" : "O"}: <b>${puntos.O}</b></span>`;
+
+      [...$("tablero").children].forEach((b, i) => {
+        b.textContent = t[i] || "";
+        b.className = `casilla ${t[i] ? t[i].toLowerCase() : ""} ${linea?.includes(i) ? "ganadora" : ""}`;
+        b.disabled = fin || !!t[i];
+      });
+
+      $("historial").innerHTML = historial.map((_, k) =>
+        `<button class="btn ${k === n ? "activo" : ""}" onclick="irA(${k})">${k ? "Movimiento " + k : "Inicio"}</button>`
+      ).join("");
+    }
+
+    // Fácil: al azar. Normal: a veces al azar, a veces perfecta. Difícil: siempre perfecta (minimax).
+    function jugadaPC(t) {
+      const azarProb = { facil: 1, normal: 0.4, dificil: 0 }[config.nivel];
+      if (Math.random() < azarProb) return azar(libres(t));
+      const puntajes = libres(t).map(i => [i, minimax(Object.assign([...t], { [i]: "O" }), "X", 1)]);
+      const mejor = Math.max(...puntajes.map(p => p[1]));
+      return azar(puntajes.filter(p => p[1] === mejor))[0];
+    }
+
+    function minimax(t, jugador, prof) {
+      const linea = lineaGanadora(t);
+      if (linea) return t[linea[0]] === "O" ? 10 - prof : prof - 10;
+      if (!libres(t).length) return 0;
+      const puntajes = libres(t).map(i =>
+        minimax(Object.assign([...t], { [i]: jugador }), jugador === "O" ? "X" : "O", prof + 1));
+      return jugador === "O" ? Math.max(...puntajes) : Math.min(...puntajes);
+    }
+
+    // Botones de modo y dificultad: cambiar cualquiera reinicia partida y marcador.
+    document.querySelectorAll("[data-modo], [data-nivel]").forEach(b => b.onclick = () => {
+      const [clave, valor] = Object.entries(b.dataset)[0];
+      if (config[clave] === valor) return;
+      config[clave] = valor;
+      b.parentElement.querySelectorAll("button").forEach(x => x.classList.toggle("activo", x === b));
+      $("dificultad").hidden = config.modo !== "pc";
+      puntos.X = puntos.O = puntos.empate = 0;
+      nuevaPartida();
+    });
+
+    nuevaPartida();
+  </script>
+</body>
+</html>
